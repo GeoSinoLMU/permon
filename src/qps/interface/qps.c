@@ -891,6 +891,9 @@ PetscErrorCode QPSSetFromOptions(QPS qps)
   flg = PETSC_FALSE;
   TRY( PetscOptionsBool("-qps_monitor","Switches QPS monitor","QPSMonitorSet",flg,&flg,NULL) );
   if (flg) TRY( QPSMonitorSet(qps,QPSMonitorDefault,NULL,NULL) );
+  flg = PETSC_FALSE;
+  TRY( PetscOptionsBool("-qps_monitor_cost","Switches QPS monitor","QPSMonitorSet",flg,&flg,NULL) );
+  if (flg) TRY( QPSMonitorSet(qps,QPSMonitorCostFunction,NULL,NULL) );
   /* actually checked in setup - this is just here to go into help message */
   TRY( PetscOptionsName("-qps_view","print the QPS parameters at the end of a QPSSolve call","QPSView",&flg) );
   TRY( PetscOptionsName("-qps_view_convergence","print the QPS convergence info at the end of a QPSSolve call","QPSViewConvergence",&flg) );
@@ -1176,13 +1179,7 @@ $     monitor (QPS qps, int it, PetscReal rnorm, void *mctx)
 
    Options Database Keys:
 +  -qps_monitor - sets QPSMonitorDefault()
-.  -qps_monitor_true_residual    - sets QPSMonitorTrueResidualNorm()
-.  -qps_monitor_max    - sets QPSMonitorTrueResidualMaxNorm()
-.  -qps_monitor_lg_residualnorm    - sets line graph monitor,
-                             uses QPSMonitorLGResidualNormCreate()
-.  -qps_monitor_lg_true_residualnorm   - sets line graph monitor,
-                             uses KSPMonitorLGResidualNormCreate()
-.  -qps_monitor_singular_value    - sets QPSMonitorSingularValue()
+.  -qps_monitor_cost    - sets QPSMonitorCostFunction()
 -  -qps_monitor_cancel - cancels all monitors that have
          been hardwired into a code by
          calls to QPSMonitorSet(), but
@@ -1393,7 +1390,7 @@ PetscErrorCode  QPSGetResidualHistory(QPS qps,PetscReal *a[],PetscInt *na)
 
 .keywords: QPS, default, monitor, residual
 
-.seealso: QPSMonitorSet(), QPSMonitorTrueResidualNorm(), QPSMonitorLGResidualNormCreate()
+.seealso: QPSMonitorSet(), QPSMonitorCostFunction()
 @*/
 PetscErrorCode QPSMonitorDefault(QPS qps,PetscInt n,PetscReal rnorm,void *dummy)
 {
@@ -1420,3 +1417,56 @@ PetscErrorCode QPSMonitorDefault(QPS qps,PetscInt n,PetscReal rnorm,void *dummy)
    TRY( PetscViewerASCIISubtractTab(viewer,((PetscObject)qps)->tablevel) );
    PetscFunctionReturn(0);
 }
+
+#undef __FUNCT__
+#define __FUNCT__ "QPSMonitorCostFunction"
+/*@
+   QPSMonitorDefault - Print the value of the cost function at each iteration of an
+                       iterative solver.
+
+   Collective on QPS
+
+   Input Parameters:
++  qps   - iterative context
+.  n     - iteration number
+.  rnorm - unused
+-  dummy - unused monitor context
+
+   Level: intermediate
+
+.keywords: QPS, monitor, cost function
+
+.seealso: QPSMonitorSet(), QPSMonitorDefault()
+@*/
+PetscErrorCode QPSMonitorCostFunction(QPS qps,PetscInt n,PetscReal rnorm,void *dummy)
+{
+   PetscViewer    viewer = (PetscViewer) dummy;
+   QP             qp;
+   Vec            x;
+   PetscReal      f;
+
+   PetscFunctionBegin;
+   if (!viewer) {
+     TRY( PetscViewerASCIIGetStdout(PetscObjectComm((PetscObject)qps),&viewer) );
+   }
+   TRY( PetscViewerASCIIAddTab(viewer,((PetscObject)qps)->tablevel) );
+
+   if (qps->ops->monitorcostfunction){
+       /* this algorithm has own monitor */
+       TRY( (*qps->ops->monitorcostfunction)(qps,n,viewer) );
+   } else {
+       /* use default QPS monitor */
+       if (n == 0 && ((PetscObject)qps)->prefix) {
+             TRY( PetscViewerASCIIPrintf(viewer,"  Cost function values for %s solve.\n",((PetscObject)qps)->prefix) );
+       }
+       TRY( QPSGetSolvedQP(qps,&qp) );
+       TRY( QPGetSolutionVector(qp, &x) );
+       TRY( QPComputeObjective(qp,x,&f) );
+       TRY( PetscViewerASCIIPrintf(viewer,"%3D QPS Cost function value %14.12e \n",n,(double)f) );
+       TRY( PetscViewerASCIISubtractTab(viewer,((PetscObject)qps)->tablevel) );
+   }
+
+   TRY( PetscViewerASCIISubtractTab(viewer,((PetscObject)qps)->tablevel) );
+   PetscFunctionReturn(0);
+}
+
